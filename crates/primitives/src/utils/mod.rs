@@ -147,10 +147,13 @@ pub fn eip191_message<T: AsRef<[u8]>>(message: T) -> Vec<u8> {
 /// [`Keccak-256`]: https://en.wikipedia.org/wiki/SHA-3
 pub fn keccak256<T: AsRef<[u8]>>(bytes: T) -> B256 {
     fn keccak256(bytes: &[u8]) -> B256 {
-        let mut output = MaybeUninit::<B256>::uninit();
-
         cfg_if! {
-            if #[cfg(all(feature = "native-keccak", not(any(feature = "sha3-keccak", feature = "tiny-keccak", miri))))] {
+            if #[cfg(target_os = "zkvm")] {
+                let output = zkm_zkvm::lib::keccak256::keccak256(bytes);
+                B256::from(output)
+            } else if #[cfg(all(feature = "native-keccak", not(any(feature = "sha3-keccak", feature = "tiny-keccak", miri))))] {
+                let mut output = MaybeUninit::<B256>::uninit();
+
                 #[link(wasm_import_module = "vm_hooks")]
                 unsafe extern "C" {
                     /// When targeting VMs with native keccak hooks, the `native-keccak` feature
@@ -173,16 +176,21 @@ pub fn keccak256<T: AsRef<[u8]>>(bytes: T) -> B256 {
 
                 // SAFETY: The output is 32-bytes, and the input comes from a slice.
                 unsafe { native_keccak256(bytes.as_ptr(), bytes.len(), output.as_mut_ptr().cast::<u8>()) };
+
+                // SAFETY: Initialized above.
+                unsafe { output.assume_init() }
             } else {
+                let mut output = MaybeUninit::<B256>::uninit();
+
                 let mut hasher = Keccak256::new();
                 hasher.update(bytes);
                 // SAFETY: Never reads from `output`.
                 unsafe { hasher.finalize_into_raw(output.as_mut_ptr().cast()) };
+
+                // SAFETY: Initialized above.
+                unsafe { output.assume_init() }
             }
         }
-
-        // SAFETY: Initialized above.
-        unsafe { output.assume_init() }
     }
 
     keccak256(bytes.as_ref())

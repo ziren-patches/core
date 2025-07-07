@@ -105,6 +105,9 @@ diesel = { workspace = true, optional = true }
 # sqlx support (optional, for DB integration)
 sqlx-core = { workspace = true, optional = true }
 
+[target.'cfg(target_os = "zkvm")'.dependencies]
+zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-zkvm" }
+
 [dev-dependencies]
 bcs.workspace = true
 bincode.workspace = true
@@ -112,7 +115,8 @@ criterion.workspace = true
 serde_json.workspace = true
 
 [features]
-default = ["std", "map", "map-foldhash"]
+default = ["sha3-keccak", "map-foldhash", "rlp"]
+# default = ["std", "map", "map-foldhash"]
 std = [
     "bytes/std",
     "hex/std",
