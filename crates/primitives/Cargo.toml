@@ -106,7 +106,7 @@ diesel = { workspace = true, optional = true }
 sqlx-core = { workspace = true, optional = true }
 
 [target.'cfg(target_os = "zkvm")'.dependencies]
-zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-zkvm" }
+zkm-zkvm = { git = "https://github.com/ProjectZKM/Ziren", package = "zkm-zkvm", tag = "v1.2.7" }
 
 [dev-dependencies]
 bcs.workspace = true
