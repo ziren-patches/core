@@ -30,7 +30,9 @@ pub use foldhash;
 
 // Default hasher.
 cfg_if! {
-    if #[cfg(feature = "map-foldhash")] {
+    if #[cfg(target_os = "zkvm")] {
+        type DefaultHashBuilderInner = WordBuildHasher;
+    } else if #[cfg(feature = "map-foldhash")] {
         type DefaultHashBuilderInner = foldhash::fast::RandomState;
     } else if #[cfg(feature = "map-fxhash")] {
         type DefaultHashBuilderInner = FxBuildHasher;
@@ -113,5 +115,99 @@ impl Hasher for DefaultHasher {
     #[inline(always)]
     fn finish(&self) -> u64 {
         self.inner.finish()
+    }
+}
+
+/// A word-at-a-time multiplicative hasher for 32-bit zkVM guests.
+///
+/// Each 32-bit word `w` updates the state as `h = (rotl(h, 5) ^ w) * K`, one
+/// 32x32 multiplication per word; [`finish`](Hasher::finish) folds the high
+/// bits into the low ones, `h ^= h >> 15; h *= K; h ^= h >> 13`, since
+/// hashbrown takes the bucket index from the low bits of the hash and the
+/// control byte from bits 25..32 on a 32-bit target.  The guest's inputs are
+/// fixed by the block, so the keyed seeds of the host hashers buy nothing here.
+#[cfg(target_os = "zkvm")]
+#[derive(Clone, Copy, Default)]
+#[allow(missing_debug_implementations)]
+pub struct WordBuildHasher;
+
+#[cfg(target_os = "zkvm")]
+impl BuildHasher for WordBuildHasher {
+    type Hasher = WordHasher;
+
+    #[inline(always)]
+    fn build_hasher(&self) -> WordHasher {
+        WordHasher { h: 0 }
+    }
+}
+
+/// The [`Hasher`] of [`WordBuildHasher`].
+#[cfg(target_os = "zkvm")]
+#[derive(Clone, Copy)]
+#[allow(missing_debug_implementations)]
+pub struct WordHasher {
+    h: u32,
+}
+
+#[cfg(target_os = "zkvm")]
+const WORD_K: u32 = 0x93d7_65dd;
+
+#[cfg(target_os = "zkvm")]
+impl WordHasher {
+    #[inline(always)]
+    fn word(&mut self, w: u32) {
+        self.h = (self.h.rotate_left(5) ^ w).wrapping_mul(WORD_K);
+    }
+}
+
+#[cfg(target_os = "zkvm")]
+impl Hasher for WordHasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        let mut chunks = bytes.chunks_exact(4);
+        for c in &mut chunks {
+            self.word(u32::from_le_bytes([c[0], c[1], c[2], c[3]]));
+        }
+        let rest = chunks.remainder();
+        if !rest.is_empty() {
+            let mut b = [0u8; 4];
+            b[..rest.len()].copy_from_slice(rest);
+            self.word(u32::from_le_bytes(b) ^ ((rest.len() as u32) << 30));
+        }
+    }
+
+    #[inline(always)]
+    fn write_u8(&mut self, i: u8) {
+        self.word(i as u32);
+    }
+
+    #[inline(always)]
+    fn write_u16(&mut self, i: u16) {
+        self.word(i as u32);
+    }
+
+    #[inline(always)]
+    fn write_u32(&mut self, i: u32) {
+        self.word(i);
+    }
+
+    #[inline(always)]
+    fn write_u64(&mut self, i: u64) {
+        self.word(i as u32);
+        self.word((i >> 32) as u32);
+    }
+
+    #[inline(always)]
+    fn write_usize(&mut self, i: usize) {
+        self.word(i as u32);
+    }
+
+    #[inline(always)]
+    fn finish(&self) -> u64 {
+        let mut h = self.h;
+        h ^= h >> 15;
+        h = h.wrapping_mul(WORD_K);
+        h ^= h >> 13;
+        h as u64
     }
 }
